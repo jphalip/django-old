@@ -57,7 +57,7 @@ class Options(object):
         # from *other* models. Needed for some admin checks. Internal use only.
         self.related_fkey_lookups = []
 
-        self._resolved_lookup_path_cache = {}
+        self._resolve_lookup_path_cache = {}
 
     def contribute_to_class(self, cls, name):
         from django.db import connection
@@ -510,10 +510,10 @@ class Options(object):
         reached the end of the lookup or None if it didn't.
         """
         # Look in the cache first.
-        if path in self._resolved_lookup_path_cache:
+        if path in self._resolve_lookup_path_cache:
             # Return a copy of parts and fields, as they may be modified later
             # by the calling code.
-            cached = self._resolved_lookup_path_cache[path]
+            cached = self._resolve_lookup_path_cache[path]
             return copy(cached[0]), copy(cached[1]), cached[2]
 
         parts = path.split(LOOKUP_SEP)
@@ -526,7 +526,7 @@ class Options(object):
         last_field = None
         if num_parts == 1:
             try:
-                # Let's see if the only one lookup provided is a field
+                # Let's see if the only one lookup that's provided is a field.
                 last_field, _, _, _ = self.get_field_by_name(path)
                 fields.append(last_field)
             except FieldDoesNotExist:
@@ -554,7 +554,7 @@ class Options(object):
                 # the lookups wasn't a field.
                 pass
         # Cache the result.
-        self._resolved_lookup_path_cache[path] = (
+        self._resolve_lookup_path_cache[path] = (
             parts, fields, last_field)
         # Return a copy of parts and fields, as they may be modified later by
         # the calling code.

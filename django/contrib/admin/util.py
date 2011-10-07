@@ -329,11 +329,11 @@ def reverse_field_path(model, path):
             related_name = field.field.name
             parent = field.model
         reversed_path.insert(0, related_name)
-    return (parent, LOOKUP_SEP.join(reversed_path))
+    return parent, LOOKUP_SEP.join(reversed_path)
 
 
 def remove_trailing_data_field(fields):
-    """ Discard trailing non-relation field if existant. """
+    """ Discard trailing non-relation field if extant. """
     try:
         get_model_from_relation(fields[-1])
     except NotRelationField:
