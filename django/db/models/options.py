@@ -1,8 +1,11 @@
+from copy import copy
 import re
 from bisect import bisect
 
+from django.core.exceptions import FieldError
+from django.db.models.sql.constants import LOOKUP_SEP
 from django.conf import settings
-from django.db.models.related import RelatedObject
+from django.db.models.related import RelatedObject, get_model_from_relation, NotRelationField
 from django.db.models.fields.related import ManyToManyRel
 from django.db.models.fields import AutoField, FieldDoesNotExist
 from django.db.models.fields.proxy import OrderWrt
@@ -53,6 +56,8 @@ class Options(object):
         # List of all lookups defined in ForeignKey 'limit_choices_to' options
         # from *other* models. Needed for some admin checks. Internal use only.
         self.related_fkey_lookups = []
+
+        self._resolved_lookup_path_cache = {}
 
     def contribute_to_class(self, cls, name):
         from django.db import connection
@@ -495,3 +500,62 @@ class Options(object):
         Returns the index of the primary key field in the self.fields list.
         """
         return self.fields.index(self.pk)
+
+    def resolve_lookup_path(self, path):
+        """
+        Resolves the given lookup path and returns a tuple (parts, fields,
+        last_field) where parts is the lookup path split by LOOKUP_SEP,
+        fields is the list of fields that have been resolved by traversing the
+        relations, and last_field is the last field if the relation traversal
+        reached the end of the lookup or None if it didn't.
+        """
+        # Look in the cache first.
+        if path in self._resolved_lookup_path_cache:
+            # Return a copy of parts and fields, as they may be modified later
+            # by the calling code.
+            cached = self._resolved_lookup_path_cache[path]
+            return copy(cached[0]), copy(cached[1]), cached[2]
+
+        parts = path.split(LOOKUP_SEP)
+        if not parts:
+            raise FieldError("Cannot parse lookup path %r" % path)
+
+        num_parts = len(parts)
+
+        fields = []
+        last_field = None
+        if num_parts == 1:
+            try:
+                # Let's see if the only one lookup provided is a field
+                last_field, _, _, _ = self.get_field_by_name(path)
+                fields.append(last_field)
+            except FieldDoesNotExist:
+                # Not a field, let's move on.
+                pass
+        else:
+            # Traverse the lookup query to distinguish related fields from
+            # lookup types.
+            try:
+                opts = self
+                for counter, field_name in enumerate(parts):
+                    lookup_field, _, _, _ = opts.get_field_by_name(field_name)
+                    fields.append(lookup_field)
+                    if (counter + 1) < num_parts:
+                        # If we haven't reached the end of the list of
+                        # lookups yet, then let's attempt to continue
+                        # traversing relations.
+                        related_model = get_model_from_relation(lookup_field)
+                        opts = related_model._meta
+                # We have reached the end of the query and the last lookup
+                # is a field.
+                last_field = fields[-1]
+            except (FieldDoesNotExist, NotRelationField):
+                # The traversing didn't reach the end because at least one of
+                # the lookups wasn't a field.
+                pass
+        # Cache the result.
+        self._resolved_lookup_path_cache[path] = (
+            parts, fields, last_field)
+        # Return a copy of parts and fields, as they may be modified later by
+        # the calling code.
+        return copy(parts), copy(fields), last_field

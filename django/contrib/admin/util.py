@@ -1,7 +1,7 @@
 from django.db import models
 from django.db.models.sql.constants import LOOKUP_SEP
 from django.db.models.deletion import Collector
-from django.db.models.related import RelatedObject
+from django.db.models.related import RelatedObject, get_model_from_relation, NotRelationField
 from django.forms.forms import pretty_name
 from django.utils import formats
 from django.utils.html import escape
@@ -302,20 +302,6 @@ def display_for_field(value, field):
     else:
         return smart_unicode(value)
 
-
-class NotRelationField(Exception):
-    pass
-
-
-def get_model_from_relation(field):
-    if isinstance(field, models.related.RelatedObject):
-        return field.model
-    elif getattr(field, 'rel'): # or isinstance?
-        return field.rel.to
-    else:
-        raise NotRelationField
-
-
 def reverse_field_path(model, path):
     """ Create a reversed field path.
 
@@ -346,28 +332,8 @@ def reverse_field_path(model, path):
     return (parent, LOOKUP_SEP.join(reversed_path))
 
 
-def get_fields_from_path(model, path):
-    """ Return list of Fields given path relative to model.
-
-    e.g. (ModelX, "user__groups__name") -> [
-        <django.db.models.fields.related.ForeignKey object at 0x...>,
-        <django.db.models.fields.related.ManyToManyField object at 0x...>,
-        <django.db.models.fields.CharField object at 0x...>,
-    ]
-    """
-    pieces = path.split(LOOKUP_SEP)
-    fields = []
-    for piece in pieces:
-        if fields:
-            parent = get_model_from_relation(fields[-1])
-        else:
-            parent = model
-        fields.append(parent._meta.get_field_by_name(piece)[0])
-    return fields
-
-
 def remove_trailing_data_field(fields):
-    """ Discard trailing non-relation field if extant. """
+    """ Discard trailing non-relation field if existant. """
     try:
         get_model_from_relation(fields[-1])
     except NotRelationField:
@@ -381,8 +347,7 @@ def get_limit_choices_to_from_path(model, path):
     If final model in path is linked via a ForeignKey or ManyToManyField which
     has a `limit_choices_to` attribute, return it as a Q object.
     """
-
-    fields = get_fields_from_path(model, path)
+    _, fields, _ = model._meta.resolve_lookup_path(path)
     fields = remove_trailing_data_field(fields)
     limit_choices_to = (
         fields and hasattr(fields[-1], 'rel') and
