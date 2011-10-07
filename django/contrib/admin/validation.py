@@ -4,7 +4,6 @@ from django.db.models.fields import FieldDoesNotExist
 from django.forms.models import (BaseModelForm, BaseModelFormSet, fields_for_model,
     _get_foreign_key)
 from django.contrib.admin import ListFilter, FieldListFilter
-from django.contrib.admin.util import get_fields_from_path, NotRelationField
 from django.contrib.admin.options import (flatten_fieldsets, BaseModelAdmin,
     HORIZONTAL, VERTICAL)
 
@@ -84,9 +83,8 @@ def validate(cls, model):
                     # item is option #1
                     field = item
                 # Validate the field string
-                try:
-                    get_fields_from_path(model, field)
-                except (NotRelationField, FieldDoesNotExist):
+                _, _, last_field = model._meta.resolve_lookup_path(field)
+                if not last_field:
                     raise ImproperlyConfigured("'%s.list_filter[%d]' refers to '%s'"
                             " which does not refer to a Field."
                             % (cls.__name__, idx, field))

@@ -58,32 +58,10 @@ class GeoWhereNode(WhereNode):
         'address__point'.
 
         If a GeometryField exists according to the given lookup on the model
-        options, it will be returned.  Otherwise returns None.
+        options, it will be returned.  Otherwise returns False.
         """
-        # This takes into account the situation where the lookup is a
-        # lookup to a related geographic field, e.g., 'address__point'.
-        field_list = lookup.split(LOOKUP_SEP)
-
-        # Reversing so list operates like a queue of related lookups,
-        # and popping the top lookup.
-        field_list.reverse()
-        fld_name = field_list.pop()
-
-        try:
-            geo_fld = opts.get_field(fld_name)
-            # If the field list is still around, then it means that the
-            # lookup was for a geometry field across a relationship --
-            # thus we keep on getting the related model options and the
-            # model field associated with the next field in the list
-            # until there's no more left.
-            while len(field_list):
-                opts = geo_fld.rel.to._meta
-                geo_fld = opts.get_field(field_list.pop())
-        except (FieldDoesNotExist, AttributeError):
-            return False
-
-        # Finally, make sure we got a Geographic field and return.
-        if isinstance(geo_fld, GeometryField):
-            return geo_fld
+        _, _, field = opts.resolve_lookup_path(lookup)
+        if field and isinstance(field, GeometryField):
+            return field
         else:
             return False

@@ -10,7 +10,7 @@ from django.utils.http import urlencode
 
 from django.contrib.admin import FieldListFilter
 from django.contrib.admin.options import IncorrectLookupParameters
-from django.contrib.admin.util import quote, get_fields_from_path
+from django.contrib.admin.util import quote
 
 # Changelist settings
 ALL_VAR = 'all'
@@ -105,7 +105,7 @@ class ChangeList(object):
                         field, field_list_filter_class = list_filter, FieldListFilter.create
                     if not isinstance(field, models.Field):
                         field_path = field
-                        field = get_fields_from_path(self.model, field_path)[-1]
+                        _, _, field = self.model._meta.resolve_lookup_path(field_path)
                     spec = field_list_filter_class(field, request, cleaned_params,
                         self.model, self.model_admin, field_path=field_path)
                 if spec and spec.has_output():

@@ -1041,15 +1041,15 @@ class Query(object):
         during the processing of extra filters to avoid infinite recursion.
         """
         arg, value = filter_expr
-        parts = arg.split(LOOKUP_SEP)
-        if not parts:
-            raise FieldError("Cannot parse keyword query %r" % arg)
 
-        # Work out the lookup type and remove it from 'parts', if necessary.
-        if len(parts) == 1 or parts[-1] not in self.query_terms:
-            lookup_type = 'exact'
-        else:
+        parts, _, last_field = self.model._meta.resolve_lookup_path(arg)
+
+        # Work out the lookup type and remove it from the end of 'parts',
+        # if necessary.
+        if not last_field and len(parts) and parts[-1] in self.query_terms:
             lookup_type = parts.pop()
+        else:
+            lookup_type = 'exact'
 
         # By default, this is a WHERE clause. If an aggregate is referenced
         # in the value, the filter will be promoted to a HAVING
