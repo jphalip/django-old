@@ -348,6 +348,7 @@ def get_limit_choices_to_from_path(model, path):
     has a `limit_choices_to` attribute, return it as a Q object.
     """
     _, fields, _ = model._meta.resolve_lookup_path(path)
+    fields = [field[0] for field in fields]
     fields = remove_trailing_data_field(fields)
     limit_choices_to = (
         fields and hasattr(fields[-1], 'rel') and

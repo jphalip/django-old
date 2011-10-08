@@ -36,17 +36,16 @@ class SQLEvaluator(object):
     def prepare_leaf(self, node, query, allow_joins):
         if not allow_joins and LOOKUP_SEP in node.name:
             raise FieldError("Joined field references are not permitted in this query")
-
-        field_list = node.name.split(LOOKUP_SEP)
-        if (len(field_list) == 1 and
+        opts = query.get_meta()
+        parts, _, _ = opts.resolve_lookup_path(node.name)
+        if (len(parts) == 1 and
             node.name in query.aggregate_select.keys()):
             self.contains_aggregate = True
             self.cols[node] = query.aggregate_select[node.name]
         else:
             try:
                 field, source, opts, join_list, last, _ = query.setup_joins(
-                    field_list, query.get_meta(),
-                    query.get_initial_alias(), False)
+                    node.name, opts, query.get_initial_alias(), False)
                 col, _, join_list = query.trim_joins(source, join_list, last, False)
 
                 self.cols[node] = (join_list[-1], col)
