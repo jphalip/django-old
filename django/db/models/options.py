@@ -521,11 +521,11 @@ class Options(object):
             raise FieldError("Cannot parse lookup path %r" % path)
 
         num_parts = len(parts)
-
         fields = []
         last_field = None
+
         # Traverse the lookup query to distinguish related fields from
-        # lookup types.
+        # lookup types and aggregates.
         try:
             opts = self
             for counter, field_name in enumerate(parts):
@@ -543,7 +543,11 @@ class Options(object):
             # is a field.
             last_field = fields[-1]
         except FieldDoesNotExist:
-            if allow_explicit_fk and field_name not in query.query_terms:
+            if (allow_explicit_fk and
+                field_name not in query.query_terms and
+                field_name not in query.aggregate_select.keys() and
+                field_name not in query.aggregates.keys() and
+                LOOKUP_SEP.join(parts) not in query.aggregates.keys()):
                 # XXX: A hack to allow foo_id to work in values() for
                 # backwards compatibility purposes. If we dropped that
                 # feature, this could be removed.
@@ -553,13 +557,12 @@ class Options(object):
                         fields.append(field_info)
                         break
                 else:
-                    names = opts.get_all_field_names() + query.aggregate_select.keys()
                     raise FieldError("Cannot resolve keyword %r into field. "
-                            "Choices are: %s" % (field_name, ", ".join(names)))
-            else:
-                # The traversing didn't reach the end because at least one of
-                # the lookups wasn't a field.
-                pass
+                                     "Choices are: %s" % (
+                                       field_name,
+                                       ", ".join(opts.get_all_field_names())))
+            # The traversing didn't reach the end because at least one of
+            # the lookups wasn't a field.
         except NotRelationField:
             # The traversing didn't reach the end because at least one of
             # the lookups wasn't a relation field.
