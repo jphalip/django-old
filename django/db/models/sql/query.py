@@ -974,11 +974,11 @@ class Query(object):
         parts, fields, _ = opts.resolve_lookup_path(aggregate.lookup)
         if len(parts) == 1 and aggregate.lookup in self.aggregates:
             # Aggregate is over an annotation
-            col = fields[0][0]
-            source = self.aggregates[col.name]
+            col = parts[0]
+            source = self.aggregates[col]
             if not is_summary:
                 raise FieldError("Cannot compute %s('%s'): '%s' is an aggregate" % (
-                    aggregate.name, col.name, col.name))
+                    aggregate.name, col, col))
         elif ((len(parts) > 1) or
             (parts[0] not in [i.name for i in opts.fields]) or
             self.group_by is None or

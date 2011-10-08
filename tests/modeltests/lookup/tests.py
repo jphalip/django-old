@@ -468,7 +468,8 @@ class LookupTests(TestCase):
             Article.objects.filter(pub_date_year='2005').count()
             self.fail('FieldError not raised')
         except FieldError, ex:
-            self.assertEqual(str(ex), "Join on field 'pub_date_year' not permitted.")
+            self.assertEqual(str(ex), "Cannot resolve keyword 'pub_date_year' "
+                             "into field. Choices are: author, headline, id, pub_date, tag")
         try:
             Article.objects.filter(headline__starts='Article')
             self.fail('FieldError not raised')
