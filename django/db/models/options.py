@@ -543,7 +543,7 @@ class Options(object):
             # is a field.
             last_field = fields[-1]
         except FieldDoesNotExist:
-            if allow_explicit_fk:
+            if allow_explicit_fk and field_name not in query.query_terms:
                 # XXX: A hack to allow foo_id to work in values() for
                 # backwards compatibility purposes. If we dropped that
                 # feature, this could be removed.
@@ -553,7 +553,7 @@ class Options(object):
                         fields.append(field_info)
                         break
                 else:
-                    names = self.get_all_field_names() + query.aggregate_select.keys()
+                    names = opts.get_all_field_names() + query.aggregate_select.keys()
                     raise FieldError("Cannot resolve keyword %r into field. "
                             "Choices are: %s" % (field_name, ", ".join(names)))
             else:
