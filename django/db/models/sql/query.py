@@ -1013,7 +1013,8 @@ class Query(object):
         aggregate.add_to_query(self, alias, col=col, source=source, is_summary=is_summary)
 
     def add_filter(self, filter_expr, connector=AND, negate=False, trim=False,
-            can_reuse=None, process_extras=True, force_having=False):
+            can_reuse=None, process_extras=True, force_having=False,
+            allow_explicit_fk=False):
         """
         Add a single filter to the query. The 'filter_expr' is a pair:
         (filter_string, value). E.g. ('name__contains', 'fred')
@@ -1040,7 +1041,8 @@ class Query(object):
         """
         arg, value = filter_expr
 
-        parts, _, last_field = self.model._meta.resolve_lookup_path(arg)
+        parts, _, last_field = self.model._meta.resolve_lookup_path(
+            arg, allow_explicit_fk, query=self)
 
         # Work out the lookup type and remove it from the end of 'parts',
         # if necessary.
@@ -1214,7 +1216,8 @@ class Query(object):
                     self.add_q(child, used_aliases, force_having=force_having)
                 else:
                     self.add_filter(child, connector, q_object.negated,
-                            can_reuse=used_aliases, force_having=force_having)
+                        can_reuse=used_aliases, force_having=force_having,
+                        allow_explicit_fk=True)
                 if force_having:
                     self.having.end_subtree()
                 else:
