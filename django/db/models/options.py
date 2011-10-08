@@ -501,7 +501,7 @@ class Options(object):
         """
         return self.fields.index(self.pk)
 
-    def resolve_lookup_path(self, path):
+    def resolve_lookup_path(self, path, allow_explicit_fk=False, query=None):
         """
         Resolves the given lookup path and returns a tuple (parts, fields,
         last_field) where parts is the lookup path split by LOOKUP_SEP,
@@ -524,35 +524,46 @@ class Options(object):
 
         fields = []
         last_field = None
-        if num_parts == 1:
-            try:
-                # Let's see if the only one lookup that's provided is a field.
-                last_field, _, _, _ = self.get_field_by_name(path)
-                fields.append(last_field)
-            except FieldDoesNotExist:
-                # Not a field, let's move on.
-                pass
-        else:
-            # Traverse the lookup query to distinguish related fields from
-            # lookup types.
-            try:
-                opts = self
-                for counter, field_name in enumerate(parts):
-                    lookup_field, _, _, _ = opts.get_field_by_name(field_name)
-                    fields.append(lookup_field)
-                    if (counter + 1) < num_parts:
-                        # If we haven't reached the end of the list of
-                        # lookups yet, then let's attempt to continue
-                        # traversing relations.
-                        related_model = get_model_from_relation(lookup_field)
-                        opts = related_model._meta
-                # We have reached the end of the query and the last lookup
-                # is a field.
-                last_field = fields[-1]
-            except (FieldDoesNotExist, NotRelationField):
+        # Traverse the lookup query to distinguish related fields from
+        # lookup types.
+        try:
+            opts = self
+            for counter, field_name in enumerate(parts):
+                if field_name == 'pk':
+                    field_name = opts.pk.name
+                field_info = opts.get_field_by_name(field_name)
+                fields.append(field_info)
+                if (counter + 1) < num_parts:
+                    # If we haven't reached the end of the list of
+                    # lookups yet, then let's attempt to continue
+                    # traversing relations.
+                    related_model = get_model_from_relation(field_info[0])
+                    opts = related_model._meta
+            # We have reached the end of the query and the last lookup
+            # is a field.
+            last_field = fields[-1]
+        except FieldDoesNotExist:
+            if allow_explicit_fk:
+                # XXX: A hack to allow foo_id to work in values() for
+                # backwards compatibility purposes. If we dropped that
+                # feature, this could be removed.
+                for f in opts.fields:
+                    if field_name == f.attname:
+                        field_info = opts.get_field_by_name(f.name)
+                        fields.append(field_info)
+                        break
+                else:
+                    names = self.get_all_field_names() + query.aggregate_select.keys()
+                    raise FieldError("Cannot resolve keyword %r into field. "
+                            "Choices are: %s" % (field_name, ", ".join(names)))
+            else:
                 # The traversing didn't reach the end because at least one of
                 # the lookups wasn't a field.
                 pass
+        except NotRelationField:
+            # The traversing didn't reach the end because at least one of
+            # the lookups wasn't a relation field.
+            pass
         # Cache the result.
         self._resolve_lookup_path_cache[path] = (
             parts, fields, last_field)

@@ -250,7 +250,7 @@ class BaseModelAdmin(object):
         # drop __id if it is the last part. However, first we need to find
         # the pk attribute name.
         if (num_fields == num_parts and
-            parts[-1] == fields[-1].model._meta.pk.name):
+            parts[-1] == fields[-1][0].model._meta.pk.name):
             parts.pop()
             num_parts += -1
 

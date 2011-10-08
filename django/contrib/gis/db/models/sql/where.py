@@ -59,7 +59,7 @@ class GeoWhereNode(WhereNode):
         options, it will be returned.  Otherwise returns False.
         """
         _, _, field = opts.resolve_lookup_path(lookup)
-        if field and isinstance(field, GeometryField):
-            return field
+        if field[0] and isinstance(field[0], GeometryField):
+            return field[0]
         else:
             return False

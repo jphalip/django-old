@@ -971,17 +971,16 @@ class Query(object):
         Adds a single aggregate expression to the Query
         """
         opts = model._meta
-        field_list = aggregate.lookup.split(LOOKUP_SEP)
-        if len(field_list) == 1 and aggregate.lookup in self.aggregates:
+        parts, fields, _ = opts.resolve_lookup_path(aggregate.lookup)
+        if len(parts) == 1 and aggregate.lookup in self.aggregates:
             # Aggregate is over an annotation
-            field_name = field_list[0]
-            col = field_name
-            source = self.aggregates[field_name]
+            col = fields[0][0]
+            source = self.aggregates[col.name]
             if not is_summary:
                 raise FieldError("Cannot compute %s('%s'): '%s' is an aggregate" % (
-                    aggregate.name, field_name, field_name))
-        elif ((len(field_list) > 1) or
-            (field_list[0] not in [i.name for i in opts.fields]) or
+                    aggregate.name, col.name, col.name))
+        elif ((len(parts) > 1) or
+            (parts[0] not in [i.name for i in opts.fields]) or
             self.group_by is None or
             not is_summary):
             # If:
@@ -992,7 +991,7 @@ class Query(object):
             # then we need to explore the joins that are required.
 
             field, source, opts, join_list, last, _ = self.setup_joins(
-                field_list, opts, self.get_initial_alias(), False)
+                aggregate.lookup, opts, self.get_initial_alias(), False)
 
             # Process the join chain to see if it can be trimmed
             col, _, join_list = self.trim_joins(source, join_list, last, False)
@@ -1007,9 +1006,8 @@ class Query(object):
         else:
             # The simplest cases. No joins required -
             # just reference the provided column alias.
-            field_name = field_list[0]
-            source = opts.get_field(field_name)
-            col = field_name
+            source = fields[0][0]
+            col = source.name
 
         # Add the aggregate to the query
         aggregate.add_to_query(self, alias, col=col, source=source, is_summary=is_summary)
@@ -1048,6 +1046,7 @@ class Query(object):
         # if necessary.
         if not last_field and len(parts) and parts[-1] in self.query_terms:
             lookup_type = parts.pop()
+            arg = LOOKUP_SEP.join(parts)
         else:
             lookup_type = 'exact'
 
@@ -1070,7 +1069,7 @@ class Query(object):
             having_clause = value.contains_aggregate
 
         for alias, aggregate in self.aggregates.items():
-            if alias in (parts[0], LOOKUP_SEP.join(parts)):
+            if alias in (parts[0], arg):
                 entry = self.where_class()
                 entry.add((aggregate, lookup_type, value), AND)
                 if negate:
@@ -1083,10 +1082,11 @@ class Query(object):
         allow_many = trim or not negate
 
         try:
-            field, target, opts, join_list, last, extra_filters = self.setup_joins(
-                    parts, opts, alias, True, allow_many, allow_explicit_fk=True,
+            field, target, opts, join_list, last, extra_filters = (
+                self.setup_joins(
+                    arg, opts, alias, True, allow_many, allow_explicit_fk=True,
                     can_reuse=can_reuse, negate=negate,
-                    process_extras=process_extras)
+                    process_extras=process_extras))
         except MultiJoin, e:
             self.split_exclude(filter_expr, LOOKUP_SEP.join(parts[:e.level]),
                     can_reuse)
@@ -1234,7 +1234,7 @@ class Query(object):
         if self.filter_is_sticky:
             self.used_aliases = used_aliases
 
-    def setup_joins(self, names, opts, alias, dupe_multis, allow_many=True,
+    def setup_joins(self, lookup, opts, alias, dupe_multis, allow_many=True,
             allow_explicit_fk=False, can_reuse=None, negate=False,
             process_extras=True):
         """
@@ -1260,28 +1260,24 @@ class Query(object):
         exclusions = set()
         extra_filters = []
         int_alias = None
-        for pos, name in enumerate(names):
+
+        names, fields, _ = opts.resolve_lookup_path(lookup,
+            allow_explicit_fk=allow_explicit_fk, query=self)
+
+        num_fields = len(fields)
+        num_names = len(names)
+        if num_fields != num_names:
+            if num_fields and num_fields == num_names - 1:
+                raise FieldError("Join on field %r not permitted. Did you misspell %r for the lookup type?" % (fields[-1][0].name, names[num_fields]))
+            else:
+                raise FieldError("Join on field %r not permitted." % names[num_fields])
+
+        for pos, field_info in enumerate(fields):
             if int_alias is not None:
                 exclusions.add(int_alias)
             exclusions.add(alias)
             last.append(len(joins))
-            if name == 'pk':
-                name = opts.pk.name
-            try:
-                field, model, direct, m2m = opts.get_field_by_name(name)
-            except FieldDoesNotExist:
-                for f in opts.fields:
-                    if allow_explicit_fk and name == f.attname:
-                        # XXX: A hack to allow foo_id to work in values() for
-                        # backwards compatibility purposes. If we dropped that
-                        # feature, this could be removed.
-                        field, model, direct, m2m = opts.get_field_by_name(f.name)
-                        break
-                else:
-                    names = opts.get_all_field_names() + self.aggregate_select.keys()
-                    raise FieldError("Cannot resolve keyword %r into field. "
-                            "Choices are: %s" % (name, ", ".join(names)))
-
+            field, model, direct, m2m = field_info
             if not allow_many and (m2m or not direct):
                 for alias in joins:
                     self.unref_alias(alias)
@@ -1309,7 +1305,7 @@ class Query(object):
                         for (dupe_opts, dupe_col) in dupe_set:
                             self.update_dupe_avoidance(dupe_opts, dupe_col,
                                     alias)
-            cached_data = opts._join_cache.get(name)
+            cached_data = opts._join_cache.get(names[pos])
             orig_opts = opts
             dupe_col = direct and field.column or field.field.column
             dedupe = dupe_col in opts.duplicate_targets
@@ -1338,7 +1334,7 @@ class Query(object):
                         to_col2 = opts.get_field_by_name(
                             field.m2m_reverse_target_field_name())[0].column
                         target = opts.pk
-                        orig_opts._join_cache[name] = (table1, from_col1,
+                        orig_opts._join_cache[names[pos]] = (table1, from_col1,
                                 to_col1, table2, from_col2, to_col2, opts,
                                 target)
 
@@ -1364,7 +1360,7 @@ class Query(object):
                         table = opts.db_table
                         from_col = field.column
                         to_col = target.column
-                        orig_opts._join_cache[name] = (table, from_col, to_col,
+                        orig_opts._join_cache[names[pos]] = (table, from_col, to_col,
                                 opts, target)
 
                     alias = self.join((alias, table, from_col, to_col),
@@ -1393,7 +1389,7 @@ class Query(object):
                         to_col2 = opts.get_field_by_name(
                             field.m2m_target_field_name())[0].column
                         target = opts.pk
-                        orig_opts._join_cache[name] = (table1, from_col1,
+                        orig_opts._join_cache[names[pos]] = (table1, from_col1,
                                 to_col1, table2, from_col2, to_col2, opts,
                                 target)
 
@@ -1422,7 +1418,7 @@ class Query(object):
                                 field.rel.field_name)[0]
                         else:
                             target = opts.pk
-                        orig_opts._join_cache[name] = (table, from_col, to_col,
+                        orig_opts._join_cache[names[pos]] = (table, from_col, to_col,
                                 opts, target)
 
                     alias = self.join((alias, table, from_col, to_col),
@@ -1436,12 +1432,6 @@ class Query(object):
                 else:
                     to_avoid = int_alias
                 self.update_dupe_avoidance(dupe_opts, dupe_col, to_avoid)
-
-        if pos != len(names) - 1:
-            if pos == len(names) - 2:
-                raise FieldError("Join on field %r not permitted. Did you misspell %r for the lookup type?" % (name, names[pos + 1]))
-            else:
-                raise FieldError("Join on field %r not permitted." % name)
 
         return field, target, opts, joins, last, extra_filters
 
@@ -1606,8 +1596,7 @@ class Query(object):
         try:
             for name in field_names:
                 field, target, u2, joins, u3, u4 = self.setup_joins(
-                        name.split(LOOKUP_SEP), opts, alias, False, allow_m2m,
-                        True)
+                    name, opts, alias, False, allow_m2m, True)
                 final_alias = joins[-1]
                 col = target.column
                 if len(joins) > 1:
@@ -1888,7 +1877,7 @@ class Query(object):
         opts = self.model._meta
         alias = self.get_initial_alias()
         field, col, opts, joins, last, extra = self.setup_joins(
-                start.split(LOOKUP_SEP), opts, alias, False)
+            start, opts, alias, False)
         select_col = self.alias_map[joins[1]][LHS_JOIN_COL]
         select_alias = alias
 

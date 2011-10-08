@@ -383,11 +383,10 @@ class SQLCompiler(object):
         The 'name' is of the form 'field1__field2__...__fieldN'.
         """
         name, order = get_order_dir(name, default_order)
-        pieces = name.split(LOOKUP_SEP)
         if not alias:
             alias = self.query.get_initial_alias()
-        field, target, opts, joins, last, extra = self.query.setup_joins(pieces,
-                opts, alias, False)
+        field, target, opts, joins, last, extra = self.query.setup_joins(
+            name, opts, alias, False)
         alias = joins[-1]
         col = target.column
         if not field.rel:

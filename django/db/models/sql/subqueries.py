@@ -177,7 +177,7 @@ class DateQuery(Query):
         """
         try:
             result = self.setup_joins(
-                field_name.split(LOOKUP_SEP),
+                field_name,
                 self.get_meta(),
                 self.get_initial_alias(),
                 False

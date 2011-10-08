@@ -106,7 +106,7 @@ class ChangeList(object):
                     if not isinstance(field, models.Field):
                         field_path = field
                         _, _, field = self.model._meta.resolve_lookup_path(field_path)
-                    spec = field_list_filter_class(field, request, cleaned_params,
+                    spec = field_list_filter_class(field[0], request, cleaned_params,
                         self.model, self.model_admin, field_path=field_path)
                 if spec and spec.has_output():
                     filter_specs.append(spec)
