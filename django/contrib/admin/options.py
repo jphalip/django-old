@@ -233,6 +233,7 @@ class BaseModelAdmin(object):
                     return True
 
         parts, fields, _ = model._meta.resolve_lookup_path(lookup)
+        parts = list(parts)
         num_parts = len(parts)
         num_fields = len(fields)
 
