@@ -515,8 +515,9 @@ class Options(object):
         since the results are cached and we want to preserve them.
         """
         # Look in the cache first.
-        if path in self._resolve_lookup_path_cache:
-            return self._resolve_lookup_path_cache[path]
+        cached = self._resolve_lookup_path_cache.get(path)
+        if cached is not None:
+            return cached
 
         parts = tuple(path.split(LOOKUP_SEP))
         if not parts:
