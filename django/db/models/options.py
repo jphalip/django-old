@@ -504,24 +504,26 @@ class Options(object):
     def resolve_lookup_path(self, path, allow_explicit_fk=False, query=None):
         """
         Resolves the given lookup path and returns a tuple (parts, fields,
-        last_field) where parts is the lookup path split by LOOKUP_SEP,
-        fields is the list of fields that have been resolved by traversing the
-        relations, and last_field is the last field if the relation traversal
-        reached the end of the lookup or None if it didn't.
+        last_field) where parts is a tuple containing the lookup parts split by
+        LOOKUP_SEP; fields is a tuple of information (as returned by
+        get_field_by_name()) for all the fields that have been resolved
+        traversing the relations; and last_field is the information (also as
+        returned by get_field_by_name()) for the last part of the lookup, if
+        that part actually is a field, or None if it isn't. Note that only
+        tuples are returned so that the calling code explicitly has to
+        convert them to lists if it wants to modify them -- this is required
+        since the results are cached and we want to preserve them.
         """
         # Look in the cache first.
         if path in self._resolve_lookup_path_cache:
-            # Return a copy of parts and fields, as they may be modified later
-            # by the calling code.
-            cached = self._resolve_lookup_path_cache[path]
-            return copy(cached[0]), copy(cached[1]), cached[2]
+            return self._resolve_lookup_path_cache[path]
 
-        parts = path.split(LOOKUP_SEP)
+        parts = tuple(path.split(LOOKUP_SEP))
         if not parts:
             raise FieldError("Cannot parse lookup path %r" % path)
 
         num_parts = len(parts)
-        fields = []
+        fields = ()
         last_field = None
 
         # Traverse the lookup query to distinguish related fields from
@@ -532,7 +534,7 @@ class Options(object):
                 if field_name == 'pk':
                     field_name = opts.pk.name
                 field_info = opts.get_field_by_name(field_name)
-                fields.append(field_info)
+                fields += (field_info,)
                 if (counter + 1) < num_parts:
                     # If we haven't reached the end of the list of
                     # lookups yet, then let's attempt to continue
@@ -554,7 +556,7 @@ class Options(object):
                 for f in opts.fields:
                     if field_name == f.attname:
                         field_info = opts.get_field_by_name(f.name)
-                        fields.append(field_info)
+                        fields += (field_info,)
                         break
                 else:
                     raise FieldError("Cannot resolve keyword %r into field. "
@@ -570,6 +572,4 @@ class Options(object):
         # Cache the result.
         self._resolve_lookup_path_cache[path] = (
             parts, fields, last_field)
-        # Return a copy of parts and fields, as they may be modified later by
-        # the calling code.
-        return copy(parts), copy(fields), last_field
+        return self._resolve_lookup_path_cache[path]

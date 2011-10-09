@@ -1047,6 +1047,7 @@ class Query(object):
         # Work out the lookup type and remove it from the end of 'parts',
         # if necessary.
         if not last_field and len(parts) and parts[-1] in self.query_terms:
+            parts = list(parts)
             lookup_type = parts.pop()
             arg = LOOKUP_SEP.join(parts)
         else:
