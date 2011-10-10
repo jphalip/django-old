@@ -505,14 +505,17 @@ class Options(object):
         """
         Resolves the given lookup path and returns a tuple (parts, fields,
         last_field) where parts is a tuple containing the lookup parts split by
-        LOOKUP_SEP; fields is a tuple of information (as returned by
-        get_field_by_name()) for all the fields that have been resolved
-        traversing the relations; and last_field is the information (also as
-        returned by get_field_by_name()) for the last part of the lookup, if
-        that part actually is a field, or None if it isn't. Note that only
-        tuples are returned so that the calling code explicitly has to
-        convert them to lists if it wants to modify them -- this is required
-        since the results are cached and we want to preserve them.
+        LOOKUP_SEP; fields is a tuple of field information (each item as
+        returned by get_field_by_name()) for all the fields that have been
+        resolved traversing the relations; and last_field is the field
+        information (also as returned by get_field_by_name()) for the last part
+        of the lookup, if that part actually is a field, or None if it isn't.
+        Note that only tuples are returned so that the calling code explicitly
+        has to convert them to lists if it wants to modify them -- this is
+        required since the results are cached and we want to preserve them over
+        time.
+        Finally, allow_explicit_fk and query are required for backwards-
+        compability purposes to allow foo_id to work in values().
         """
         # Look in the cache first.
         cached = self._resolve_lookup_path_cache.get(path)
