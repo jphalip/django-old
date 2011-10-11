@@ -576,4 +576,4 @@ class Options(object):
         # Cache the result.
         self._resolve_lookup_path_cache[path] = (
             parts, fields, last_field)
-        return self._resolve_lookup_path_cache[path]
+        return parts, fields, last_field
