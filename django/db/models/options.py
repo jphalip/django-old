@@ -56,8 +56,8 @@ class Options(object):
         # List of all lookups defined in ForeignKey 'limit_choices_to' options
         # from *other* models. Needed for some admin checks. Internal use only.
         self.related_fkey_lookups = []
-
-        self._resolve_lookup_path_cache = {}
+        
+        self._resolve_lookup_path_cache = {} # Initialize lookup cache
 
     def contribute_to_class(self, cls, name):
         from django.db import connection
@@ -172,6 +172,8 @@ class Options(object):
 
         if hasattr(self, '_name_map'):
             del self._name_map
+
+        self._resolve_lookup_path_cache = {} # Flush lookup cache
 
     def add_virtual_field(self, field):
         self.virtual_fields.append(field)
