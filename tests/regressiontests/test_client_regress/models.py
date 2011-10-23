@@ -14,6 +14,8 @@ import django.template.context
 from django.test import Client, TestCase
 from django.test.client import encode_file, RequestFactory
 from django.test.utils import ContextList, override_settings
+from django.template.response import SimpleTemplateResponse
+from django.http import HttpResponse
 
 
 class AssertContainsTests(TestCase):
@@ -130,6 +132,37 @@ class AssertContainsTests(TestCase):
         self.assertNotContains(r, u'はたけ')
         self.assertNotContains(r, '\xe3\x81\xaf\xe3\x81\x9f\xe3\x81\x91'.decode('utf-8'))
 
+    def test_assert_contains_renders_template_response(self):
+        """ Test that we can pass in an unrendered SimpleTemplateReponse
+            without throwing an error.
+            Refs #15826.
+        """
+        response = SimpleTemplateResponse(Template('Hello'), status=200)
+        self.assertContains(response, 'Hello')
+
+    def test_assert_contains_using_non_template_response(self):
+        """ Test that auto-rendering does not affect responses that aren't
+            instances (or subclasses) of SimpleTemplateResponse.
+            Refs #15826.
+        """
+        response = HttpResponse('Hello')
+        self.assertContains(response, 'Hello')
+
+    def test_assert_not_contains_renders_template_response(self):
+        """ Test that we can pass in an unrendered SimpleTemplateReponse
+            without throwing an error.
+            Refs #15826.
+        """
+        response = SimpleTemplateResponse(Template('Hello'), status=200)
+        self.assertNotContains(response, 'Bye')
+
+    def test_assert_not_contains_using_non_template_response(self):
+        """ Test that auto-rendering does not affect responses that aren't
+            instances (or subclasses) of SimpleTemplateResponse.
+            Refs #15826.
+        """
+        response = HttpResponse('Hello')
+        self.assertNotContains(response, 'Bye')
 
 class AssertTemplateUsedTests(TestCase):
     fixtures = ['testdata.json']
@@ -994,3 +1027,23 @@ class RequestFactoryStateTest(TestCase):
     def test_request_after_client_2(self):
         # This test is executed after the previous one
         self.common_test_that_should_always_pass()
+
+
+class RequestFactoryEnvironmentTests(TestCase):
+    """
+    Regression tests for #8551 and #17067: ensure that environment variables
+    are set correctly in RequestFactory.
+    """
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_should_set_correct_env_variables(self):
+        request = self.factory.get('/path/')
+
+        self.assertEqual(request.META.get('REMOTE_ADDR'), '127.0.0.1')
+        self.assertEqual(request.META.get('SERVER_NAME'), 'testserver')
+        self.assertEqual(request.META.get('SERVER_PORT'), '80')
+        self.assertEqual(request.META.get('SERVER_PROTOCOL'), 'HTTP/1.1')
+        self.assertEqual(request.META.get('SCRIPT_NAME') +
+                         request.META.get('PATH_INFO'), '/path/')
