@@ -56,7 +56,7 @@ class Options(object):
         # List of all lookups defined in ForeignKey 'limit_choices_to' options
         # from *other* models. Needed for some admin checks. Internal use only.
         self.related_fkey_lookups = []
-        
+
         self._resolve_lookup_path_cache = {} # Initialize lookup cache
 
     def contribute_to_class(self, cls, name):
@@ -520,9 +520,10 @@ class Options(object):
         compability purposes to allow foo_id to work in values().
         """
         # Look in the cache first.
-        cached = self._resolve_lookup_path_cache.get(path)
-        if cached is not None:
-            return cached
+        try:
+            return self._resolve_lookup_path_cache[path]
+        except KeyError:
+            pass
 
         parts = tuple(path.split(LOOKUP_SEP))
         if not parts:
