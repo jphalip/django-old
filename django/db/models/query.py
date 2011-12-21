@@ -232,7 +232,9 @@ class QuerySet(object):
         An iterator over the results from applying this QuerySet to the
         database.
         """
-        fill_cache = self.query.select_related
+        fill_cache = False
+        if connections[self.db].features.supports_select_related:
+            fill_cache = self.query.select_related
         if isinstance(fill_cache, dict):
             requested = fill_cache
         else:
@@ -394,18 +396,29 @@ class QuerySet(object):
         self._for_write = True
         connection = connections[self.db]
         fields = self.model._meta.local_fields
-        if (connection.features.can_combine_inserts_with_and_without_auto_increment_pk
-            and self.model._meta.has_auto_field):
-            self.model._base_manager._insert(objs, fields=fields, using=self.db)
+        if not transaction.is_managed(using=self.db):
+            transaction.enter_transaction_management(using=self.db)
+            forced_managed = True
         else:
-            objs_with_pk, objs_without_pk = partition(
-                lambda o: o.pk is None,
-                objs
-            )
-            if objs_with_pk:
-                self.model._base_manager._insert(objs_with_pk, fields=fields, using=self.db)
-            if objs_without_pk:
-                self.model._base_manager._insert(objs_without_pk, fields=[f for f in fields if not isinstance(f, AutoField)], using=self.db)
+            forced_managed = False
+        try:
+            if (connection.features.can_combine_inserts_with_and_without_auto_increment_pk
+                and self.model._meta.has_auto_field):
+                self.model._base_manager._insert(objs, fields=fields, using=self.db)
+            else:
+                objs_with_pk, objs_without_pk = partition(lambda o: o.pk is None, objs)
+                if objs_with_pk:
+                    self.model._base_manager._insert(objs_with_pk, fields=fields, using=self.db)
+                if objs_without_pk:
+                    self.model._base_manager._insert(objs_without_pk, fields=[f for f in fields if not isinstance(f, AutoField)], using=self.db)
+            if forced_managed:
+                transaction.commit(using=self.db)
+            else:
+                transaction.commit_unless_managed(using=self.db)
+        finally:
+            if forced_managed:
+                transaction.leave_transaction_management(using=self.db)
+
         return objs
 
     def get_or_create(self, **kwargs):
@@ -1576,12 +1589,11 @@ def prefetch_related_objects(result_cache, related_lookups):
     done_lookups = set() # list of lookups like foo__bar__baz
     done_queries = {}    # dictionary of things like 'foo__bar': [results]
 
-    manual_lookups = list(related_lookups)
     auto_lookups = [] # we add to this as we go through.
     followed_descriptors = set() # recursion protection
 
-    related_lookups = itertools.chain(manual_lookups, auto_lookups)
-    for lookup in related_lookups:
+    all_lookups = itertools.chain(related_lookups, auto_lookups)
+    for lookup in all_lookups:
         if lookup in done_lookups:
             # We've done exactly this already, skip the whole thing
             continue

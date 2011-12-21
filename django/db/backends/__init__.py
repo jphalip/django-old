@@ -1,8 +1,9 @@
+from django.db.utils import DatabaseError
+
 try:
     import thread
 except ImportError:
     import dummy_thread as thread
-from threading import local
 from contextlib import contextmanager
 
 from django.conf import settings
@@ -10,16 +11,18 @@ from django.db import DEFAULT_DB_ALIAS
 from django.db.backends import util
 from django.db.transaction import TransactionManagementError
 from django.utils.importlib import import_module
+from django.utils.timezone import is_aware
 
 
-class BaseDatabaseWrapper(local):
+class BaseDatabaseWrapper(object):
     """
     Represents a database connection.
     """
     ops = None
     vendor = 'unknown'
 
-    def __init__(self, settings_dict, alias=DEFAULT_DB_ALIAS):
+    def __init__(self, settings_dict, alias=DEFAULT_DB_ALIAS,
+                 allow_thread_sharing=False):
         # `settings_dict` should be a dictionary containing keys such as
         # NAME, USER, etc. It's called `settings_dict` instead of `settings`
         # to disambiguate it from Django settings modules.
@@ -33,6 +36,8 @@ class BaseDatabaseWrapper(local):
         self.transaction_state = []
         self.savepoint_state = 0
         self._dirty = None
+        self._thread_ident = thread.get_ident()
+        self.allow_thread_sharing = allow_thread_sharing
 
     def __eq__(self, other):
         return self.alias == other.alias
@@ -115,6 +120,21 @@ class BaseDatabaseWrapper(local):
                 "pending COMMIT/ROLLBACK")
         self._dirty = False
 
+    def validate_thread_sharing(self):
+        """
+        Validates that the connection isn't accessed by another thread than the
+        one which originally created it, unless the connection was explicitly
+        authorized to be shared between threads (via the `allow_thread_sharing`
+        property). Raises an exception if the validation fails.
+        """
+        if (not self.allow_thread_sharing
+            and self._thread_ident != thread.get_ident()):
+                raise DatabaseError("DatabaseWrapper objects created in a "
+                    "thread can only be used in that same thread. The object "
+                    "with alias '%s' was created in thread id %s and this is "
+                    "thread id %s."
+                    % (self.alias, self._thread_ident, thread.get_ident()))
+
     def is_dirty(self):
         """
         Returns True if the current transaction requires a commit for changes to
@@ -178,6 +198,7 @@ class BaseDatabaseWrapper(local):
         """
         Commits changes if the system is not in managed transaction mode.
         """
+        self.validate_thread_sharing()
         if not self.is_managed():
             self._commit()
             self.clean_savepoints()
@@ -188,6 +209,7 @@ class BaseDatabaseWrapper(local):
         """
         Rolls back changes if the system is not in managed transaction mode.
         """
+        self.validate_thread_sharing()
         if not self.is_managed():
             self._rollback()
         else:
@@ -197,6 +219,7 @@ class BaseDatabaseWrapper(local):
         """
         Does the commit itself and resets the dirty flag.
         """
+        self.validate_thread_sharing()
         self._commit()
         self.set_clean()
 
@@ -204,6 +227,7 @@ class BaseDatabaseWrapper(local):
         """
         This function does the rollback itself and resets the dirty flag.
         """
+        self.validate_thread_sharing()
         self._rollback()
         self.set_clean()
 
@@ -227,6 +251,7 @@ class BaseDatabaseWrapper(local):
         Rolls back the most recent savepoint (if one exists). Does nothing if
         savepoints are not supported.
         """
+        self.validate_thread_sharing()
         if self.savepoint_state:
             self._savepoint_rollback(sid)
 
@@ -235,6 +260,7 @@ class BaseDatabaseWrapper(local):
         Commits the most recent savepoint (if one exists). Does nothing if
         savepoints are not supported.
         """
+        self.validate_thread_sharing()
         if self.savepoint_state:
             self._savepoint_commit(sid)
 
@@ -268,11 +294,13 @@ class BaseDatabaseWrapper(local):
         pass
 
     def close(self):
+        self.validate_thread_sharing()
         if self.connection is not None:
             self.connection.close()
             self.connection = None
 
     def cursor(self):
+        self.validate_thread_sharing()
         if (self.use_debug_cursor or
             (self.use_debug_cursor is None and settings.DEBUG)):
             cursor = self.make_debug_cursor(self._cursor())
@@ -311,6 +339,8 @@ class BaseDatabaseFeatures(object):
     allow_sliced_subqueries = True
     has_select_for_update = False
     has_select_for_update_nowait = False
+
+    supports_select_related = True
 
     # Does the default test database allow multiple connections?
     # Usually an indication that the test database is in-memory
@@ -743,6 +773,8 @@ class BaseDatabaseOperations(object):
         """
         if value is None:
             return None
+        if is_aware(value):
+            raise ValueError("Django does not support timezone-aware times.")
         return unicode(value)
 
     def value_to_db_decimal(self, value, max_digits, decimal_places):

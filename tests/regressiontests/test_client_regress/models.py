@@ -368,6 +368,18 @@ class AssertRedirectsTests(TestCase):
             '/test_client_regress/no_template_view/', 301, 200)
         self.assertEqual(len(response.redirect_chain), 3)
 
+    def test_redirect_to_different_host(self):
+        "The test client will preserve scheme, host and port changes"
+        response = self.client.get('/test_client_regress/redirect_other_host/', follow=True)
+        self.assertRedirects(response,
+            'https://otherserver:8443/test_client_regress/no_template_view/',
+            status_code=301, target_status_code=200)
+        # We can't use is_secure() or get_host()
+        # because response.request is a dictionary, not an HttpRequest
+        self.assertEqual(response.request.get('wsgi.url_scheme'), 'https')
+        self.assertEqual(response.request.get('SERVER_NAME'), 'otherserver')
+        self.assertEqual(response.request.get('SERVER_PORT'), '8443')
+
     def test_redirect_chain_on_non_redirect_page(self):
         "An assertion is raised if the original page couldn't be retrieved as expected"
         # This page will redirect with code 301, not 302
@@ -963,15 +975,16 @@ class ResponseTemplateDeprecationTests(TestCase):
 
 class ReadLimitedStreamTest(TestCase):
     """
-    Tests that ensure that HttpRequest.raw_post_data, HttpRequest.read() and
-    HttpRequest.read(BUFFER) have proper LimitedStream behaviour.
+    Tests that ensure that HttpRequest.body, HttpRequest.read() and
+    HttpRequest.read(BUFFER) have proper LimitedStream behavior.
 
     Refs #14753, #15785
     """
-    def test_raw_post_data_from_empty_request(self):
-        """HttpRequest.raw_post_data on a test client GET request should return
+
+    def test_body_from_empty_request(self):
+        """HttpRequest.body on a test client GET request should return
         the empty string."""
-        self.assertEquals(self.client.get("/test_client_regress/raw_post_data/").content, '')
+        self.assertEquals(self.client.get("/test_client_regress/body/").content, '')
 
     def test_read_from_empty_request(self):
         """HttpRequest.read() on a test client GET request should return the
@@ -1004,7 +1017,7 @@ class RequestFactoryStateTest(TestCase):
     """Regression tests for #15929."""
     # These tests are checking that certain middleware don't change certain
     # global state. Alternatively, from the point of view of a test, they are
-    # ensuring test isolation behaviour. So, unusually, it doesn't make sense to
+    # ensuring test isolation behavior. So, unusually, it doesn't make sense to
     # run the tests individually, and if any are failing it is confusing to run
     # them with any other set of tests.
 

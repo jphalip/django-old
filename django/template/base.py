@@ -18,6 +18,7 @@ from django.utils.safestring import (SafeData, EscapeData, mark_safe,
 from django.utils.formats import localize
 from django.utils.html import escape
 from django.utils.module_loading import module_has_submodule
+from django.utils.timezone import localtime
 
 
 TOKEN_TEXT = 0
@@ -249,15 +250,15 @@ class Parser(object):
                 var_node = self.create_variable_node(filter_expression)
                 self.extend_nodelist(nodelist, var_node, token)
             elif token.token_type == TOKEN_BLOCK:
-                if token.contents in parse_until:
-                    # put token back on token list so calling
-                    # code knows why it terminated
-                    self.prepend_token(token)
-                    return nodelist
                 try:
                     command = token.contents.split()[0]
                 except IndexError:
                     self.empty_block_tag(token)
+                if command in parse_until:
+                    # put token back on token list so calling
+                    # code knows why it terminated
+                    self.prepend_token(token)
+                    return nodelist
                 # execute callback function for this tag and append
                 # resulting node
                 self.enter_command(command, token)
@@ -593,6 +594,8 @@ class FilterExpression(object):
                     arg_vals.append(mark_safe(arg))
                 else:
                     arg_vals.append(arg.resolve(context))
+            if getattr(func, 'expects_localtime', False):
+                obj = localtime(obj, context.use_tz)
             if getattr(func, 'needs_autoescape', False):
                 new_obj = func(obj, autoescape=context.autoescape, *arg_vals)
             else:
@@ -853,6 +856,7 @@ def _render_value_in_context(value, context):
     means escaping, if required, and conversion to a unicode object. If value
     is a string, it is expected to have already been translated.
     """
+    value = localtime(value, use_tz=context.use_tz)
     value = localize(value, use_l10n=context.use_l10n)
     value = force_unicode(value)
     if ((context.autoescape and not isinstance(value, SafeData)) or
@@ -1077,7 +1081,7 @@ class Library(object):
         elif name is not None and filter_func is not None:
             # register.filter('somename', somefunc)
             self.filters[name] = filter_func
-            for attr in ('is_safe', 'needs_autoescape'):
+            for attr in ('expects_localtime', 'is_safe', 'needs_autoescape'):
                 if attr in flags:
                     value = flags[attr]
                     # set the flag on the filter for FilterExpression.resolve
@@ -1189,6 +1193,7 @@ class Library(object):
                         'autoescape': context.autoescape,
                         'current_app': context.current_app,
                         'use_l10n': context.use_l10n,
+                        'use_tz': context.use_tz,
                     })
                     # Copy across the CSRF token, if present, because
                     # inclusion tags are often used for forms, and we need
@@ -1210,6 +1215,22 @@ class Library(object):
             return func
         return dec
 
+def is_library_missing(name):
+    """Check if library that failed to load cannot be found under any
+    templatetags directory or does exist but fails to import.
+
+    Non-existing condition is checked recursively for each subpackage in cases
+    like <appdir>/templatetags/subpackage/package/module.py.
+    """
+    # Don't bother to check if '.' is in name since any name will be prefixed
+    # with some template root.
+    path, module = name.rsplit('.', 1)
+    try:
+        package = import_module(path)
+        return not module_has_submodule(package, module)
+    except ImportError:
+        return is_library_missing(path)
+
 def import_library(taglib_module):
     """
     Load a template tag library module.
@@ -1217,8 +1238,6 @@ def import_library(taglib_module):
     Verifies that the library contains a 'register' attribute, and
     returns that attribute as the representation of the library
     """
-    app_path, taglib = taglib_module.rsplit('.', 1)
-    app_module = import_module(app_path)
     try:
         mod = import_module(taglib_module)
     except ImportError, e:
@@ -1226,7 +1245,7 @@ def import_library(taglib_module):
         # that's not an error that should be raised. If the submodule exists
         # and raised an ImportError on the attempt to load it, that we want
         # to raise.
-        if not module_has_submodule(app_module, taglib):
+        if is_library_missing(taglib_module):
             return None
         else:
             raise InvalidTemplateLibrary("ImportError raised loading %s: %s" %

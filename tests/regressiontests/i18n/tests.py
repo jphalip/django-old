@@ -28,9 +28,11 @@ from .commands.tests import can_run_extraction_tests, can_run_compilation_tests
 if can_run_extraction_tests:
     from .commands.extraction import (ExtractorTests, BasicExtractorTests,
         JavascriptExtractorTests, IgnoredExtractorTests, SymlinkExtractorTests,
-        CopyPluralFormsExtractorTests, NoWrapExtractorTests)
+        CopyPluralFormsExtractorTests, NoWrapExtractorTests,
+        NoLocationExtractorTests)
 if can_run_compilation_tests:
-    from .commands.compilation import MessageCompilationTests, PoFileTests
+    from .commands.compilation import (PoFileTests, PoFileContentsTests,
+        PercentRenderingTests)
 from .contenttypes.tests import ContentTypeTests
 from .forms import I18nForm, SelectDateForm, SelectDateWidget, CompanyForm
 from .models import Company, TestModel
@@ -609,13 +611,13 @@ class FormattingTests(TestCase):
             form6 = CompanyForm({
                 'name': u'acme',
                 'date_added': datetime.datetime(2009, 12, 31, 6, 0, 0),
-                'cents_payed': decimal.Decimal('59.47'),
+                'cents_paid': decimal.Decimal('59.47'),
                 'products_delivered': 12000,
             })
             self.assertEqual(True, form6.is_valid())
             self.assertEqual(
                 form6.as_ul(),
-                u'<li><label for="id_name">Name:</label> <input id="id_name" type="text" name="name" value="acme" maxlength="50" /></li>\n<li><label for="id_date_added">Date added:</label> <input type="text" name="date_added" value="31.12.2009 06:00:00" id="id_date_added" /></li>\n<li><label for="id_cents_payed">Cents payed:</label> <input type="text" name="cents_payed" value="59,47" id="id_cents_payed" /></li>\n<li><label for="id_products_delivered">Products delivered:</label> <input type="text" name="products_delivered" value="12000" id="id_products_delivered" /></li>'
+                u'<li><label for="id_name">Name:</label> <input id="id_name" type="text" name="name" value="acme" maxlength="50" /></li>\n<li><label for="id_date_added">Date added:</label> <input type="text" name="date_added" value="31.12.2009 06:00:00" id="id_date_added" /></li>\n<li><label for="id_cents_paid">Cents paid:</label> <input type="text" name="cents_paid" value="59,47" id="id_cents_paid" /></li>\n<li><label for="id_products_delivered">Products delivered:</label> <input type="text" name="products_delivered" value="12000" id="id_products_delivered" /></li>'
             )
             self.assertEqual(localize_input(datetime.datetime(2009, 12, 31, 6, 0, 0)), '31.12.2009 06:00:00')
             self.assertEqual(datetime.datetime(2009, 12, 31, 6, 0, 0), form6.cleaned_data['date_added'])
@@ -888,7 +890,7 @@ class TestModels(TestCase):
         tm.save()
 
     def test_safestr(self):
-        c = Company(cents_payed=12, products_delivered=1)
+        c = Company(cents_paid=12, products_delivered=1)
         c.name = SafeUnicode(u'Iñtërnâtiônàlizætiøn1')
         c.save()
         c.name = SafeString(u'Iñtërnâtiônàlizætiøn1'.encode('utf-8'))

@@ -308,7 +308,7 @@ underscores to spaces. See :ref:`Verbose field names <verbose-field-names>`.
 
 .. attribute:: Field.validators
 
-A list of validators to run for this field.See the :doc:`validators
+A list of validators to run for this field. See the :doc:`validators
 documentation </ref/validators>` for more information.
 
 .. _model-field-types:
@@ -450,7 +450,7 @@ A fixed-precision decimal number, represented in Python by a
 .. attribute:: DecimalField.max_digits
 
     The maximum number of digits allowed in the number. Note that this number
-    must be greater than ``decimal_places``, if it exists.
+    must be greater than or equal to ``decimal_places``, if it exists.
 
 .. attribute:: DecimalField.decimal_places
 
@@ -571,6 +571,11 @@ size, you could use the :attr:`~django.core.files.File.name` and
 information on the available attributes and methods, see the
 :class:`~django.core.files.File` class reference and the :doc:`/topics/files`
 topic guide.
+
+.. note::
+    The file is saved as part of saving the model in the database, so the actual
+    file name used on disk cannot be relied on until after the model has been
+    saved.
 
 The uploaded file's relative URL can be obtained using the
 :attr:`~django.db.models.fields.FileField.url` attribute. Internally,

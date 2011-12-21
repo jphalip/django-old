@@ -37,7 +37,9 @@ from .models import (Article, BarAccount, CustomArticle, EmptyModel, FooAccount,
     DooHickey, FancyDoodad, Whatsit, Category, Post, Plot, FunkyTag, Chapter,
     Book, Promo, WorkHour, Employee, Question, Answer, Inquisition, Actor,
     FoodDelivery, RowLevelChangePermissionModel, Paper, CoverLetter, Story,
-    OtherStory, ComplexSortedPerson, Parent, Child)
+    OtherStory, ComplexSortedPerson, Parent, Child, AdminOrderedField,
+    AdminOrderedModelMethod, AdminOrderedAdminMethod, AdminOrderedCallable,
+    Report)
 
 
 ERROR_MESSAGE = "Please enter the correct username and password \
@@ -353,6 +355,32 @@ class AdminViewBasicTest(TestCase):
         self.assertTrue(
             response.content.index(link % p2.id) < response.content.index(link % p1.id)
         )
+
+    def testSortIndicatorsAdminOrder(self):
+        """
+        Ensures that the admin shows default sort indicators for all
+        kinds of 'ordering' fields: field names, method on the model
+        admin and model itself, and other callables. See #17252.
+        """
+        models = [(AdminOrderedField,       'adminorderedfield'      ),
+                  (AdminOrderedModelMethod, 'adminorderedmodelmethod'),
+                  (AdminOrderedAdminMethod, 'adminorderedadminmethod'),
+                  (AdminOrderedCallable,    'adminorderedcallable'   )]
+        for model, url in models:
+            a1 = model.objects.create(stuff='The Last Item',   order=3)
+            a2 = model.objects.create(stuff='The First Item',  order=1)
+            a3 = model.objects.create(stuff='The Middle Item', order=2)
+            response = self.client.get('/test_admin/admin/admin_views/%s/' % url, {})
+            self.assertEqual(response.status_code, 200)
+            # Should have 3 columns including action checkbox col.
+            self.assertContains(response, '<th scope="col"', count=3, msg_prefix=url)
+            # Check if the correct column was selected. 2 is the index of the
+            # 'order' column in the model admin's 'list_display' with 0 being
+            # the implicit 'action_checkbox' and 1 being the column 'stuff'.
+            self.assertEqual(response.context['cl'].get_ordering_field_columns(), {2: 'asc'})
+            # Check order of records.
+            self.assertTrue(response.content.index('The First Item') <
+                response.content.index('The Middle Item') < response.content.index('The Last Item'))
 
     def testLimitedFilter(self):
         """Ensure admin changelist filters do not contain objects excluded via limit_choices_to.
@@ -1061,6 +1089,37 @@ class AdminViewPermissionsTest(TestCase):
 
         response = self.client.get('/test_admin/admin/secure-view/')
         self.assertContains(response, 'id="login-form"')
+
+
+class AdminViewsNoUrlTest(TestCase):
+    """Regression test for #17333"""
+
+    urls = "regressiontests.admin_views.urls"
+    fixtures = ['admin-views-users.xml']
+
+    def setUp(self):
+        opts = Report._meta
+        # User who can change Reports
+        change_user = User.objects.get(username='changeuser')
+        change_user.user_permissions.add(get_perm(Report,
+            opts.get_change_permission()))
+
+        # login POST dict
+        self.changeuser_login = {
+            REDIRECT_FIELD_NAME: '/test_admin/admin/',
+            LOGIN_FORM_KEY: 1,
+            'username': 'changeuser',
+            'password': 'secret',
+        }
+
+    def test_no_standard_modeladmin_urls(self):
+        """Admin index views don't break when user's ModelAdmin removes standard urls"""
+        self.client.get('/test_admin/admin/')
+        self.client.post('/test_admin/admin/', self.changeuser_login)
+        r = self.client.get('/test_admin/admin/')
+        # we shouldn' get an 500 error caused by a NoReverseMatch
+        self.assertEqual(r.status_code, 200)
+        self.client.get('/test_admin/admin/logout/')
 
 
 class AdminViewDeletedObjectsTest(TestCase):
@@ -2757,7 +2816,7 @@ class PrePopulatedTest(TestCase):
         self.assertNotContains(response, "id: '#id_slug'")
         self.assertNotContains(response, "field['dependency_ids'].push('#id_title');")
         self.assertNotContains(response, "id: '#id_prepopulatedsubpost_set-0-subslug',")
-    
+
     @override_settings(USE_THOUSAND_SEPARATOR = True, USE_L10N = True)
     def test_prepopulated_maxlength_localized(self):
         """
@@ -2955,7 +3014,9 @@ class UserAdminTest(TestCase):
     def test_user_permission_performance(self):
         u = User.objects.all()[0]
 
-        with self.assertNumQueries(7):
+        # Don't depend on a warm cache, see #17377.
+        ContentType.objects.clear_cache()
+        with self.assertNumQueries(8):
             response = self.client.get('/test_admin/admin/auth/user/%s/' % u.pk)
             self.assertEqual(response.status_code, 200)
 

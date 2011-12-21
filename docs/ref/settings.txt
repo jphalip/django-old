@@ -1530,6 +1530,64 @@ better. ``django-admin.py startproject`` creates one automatically.
 
 .. setting:: SEND_BROKEN_LINK_EMAILS
 
+SECURE_PROXY_SSL_HEADER
+-----------------------
+
+.. versionadded:: 1.4
+
+Default: ``None``
+
+A tuple representing a HTTP header/value combination that signifies a request
+is secure. This controls the behavior of the request object's ``is_secure()``
+method.
+
+This takes some explanation. By default, ``is_secure()`` is able to determine
+whether a request is secure by looking at whether the requested URL uses
+"https://".
+
+If your Django app is behind a proxy, though, the proxy may be "swallowing" the
+fact that a request is HTTPS, using a non-HTTPS connection between the proxy
+and Django. In this case, ``is_secure()`` would always return ``False`` -- even
+for requests that were made via HTTPS by the end user.
+
+In this situation, you'll want to configure your proxy to set a custom HTTP
+header that tells Django whether the request came in via HTTPS, and you'll want
+to set ``SECURE_PROXY_SSL_HEADER`` so that Django knows what header to look
+for.
+
+You'll need to set a tuple with two elements -- the name of the header to look
+for and the required value. For example::
+
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTOCOL', 'https')
+
+Here, we're telling Django that we trust the ``X-Forwarded-Protocol`` header
+that comes from our proxy, and any time its value is ``'https'``, then the
+request is guaranteed to be secure (i.e., it originally came in via HTTPS).
+Obviously, you should *only* set this setting if you control your proxy or
+have some other guarantee that it sets/strips this header appropriately.
+
+Note that the header needs to be in the format as used by ``request.META`` --
+all caps and likely starting with ``HTTP_``. (Remember, Django automatically
+adds ``'HTTP_'`` to the start of x-header names before making the header
+available in ``request.META``.)
+
+.. warning::
+
+    **You will probably open security holes in your site if you set this without knowing what you're doing. Seriously.**
+
+    Make sure ALL of the following are true before setting this (assuming the
+    values from the example above):
+
+    * Your Django app is behind a proxy.
+    * Your proxy strips the 'X-Forwarded-Protocol' header from all incoming
+      requests. In other words, if end users include that header in their
+      requests, the proxy will discard it.
+    * Your proxy sets the 'X-Forwarded-Protocol' header and sends it to Django,
+      but only for requests that originally come in via HTTPS.
+
+    If any of those are not true, you should keep this setting set to ``None``
+    and find another way of determining HTTPS, perhaps via custom middleware.
+
 SEND_BROKEN_LINK_EMAILS
 -----------------------
 
@@ -1810,6 +1868,7 @@ Default::
     "django.core.context_processors.i18n",
     "django.core.context_processors.media",
     "django.core.context_processors.static",
+    "django.core.context_processors.tz",
     "django.contrib.messages.context_processors.messages")
 
 A tuple of callables that are used to populate the context in ``RequestContext``.
@@ -1828,6 +1887,10 @@ of items to be merged into the context.
 
 .. versionadded:: 1.3
     The ``django.core.context_processors.static`` context processor
+    was added in this release.
+
+.. versionadded:: 1.4
+    The ``django.core.context_processors.tz`` context processor
     was added in this release.
 
 .. setting:: TEMPLATE_DEBUG
@@ -1971,6 +2034,9 @@ Default: ``'America/Chicago'``
 .. versionchanged:: 1.2
    ``None`` was added as an allowed value.
 
+.. versionchanged:: 1.4
+   The meaning of this setting now depends on the value of :setting:`USE_TZ`.
+
 A string representing the time zone for this installation, or
 ``None``. `See available choices`_. (Note that list of available
 choices lists more than one on the same line; you'll want to use just
@@ -1978,16 +2044,19 @@ one of the choices for a given time zone. For instance, one line says
 ``'Europe/London GB GB-Eire'``, but you should use the first bit of
 that -- ``'Europe/London'`` -- as your :setting:`TIME_ZONE` setting.)
 
-Note that this is the time zone to which Django will convert all
-dates/times -- not necessarily the timezone of the server. For
-example, one server may serve multiple Django-powered sites, each with
-a separate time-zone setting.
+Note that this isn't necessarily the timezone of the server. For example, one
+server may serve multiple Django-powered sites, each with a separate time zone
+setting.
 
-Normally, Django sets the ``os.environ['TZ']`` variable to the time
-zone you specify in the :setting:`TIME_ZONE` setting. Thus, all your views
-and models will automatically operate in the correct time zone.
-However, Django won't set the ``TZ`` environment variable under the
-following conditions:
+When :setting:`USE_TZ` is ``False``, this is the time zone in which Django will
+store all datetimes. When :setting:`USE_TZ` is ``True``, this is the default
+time zone that Django will use to display datetimes in templates and to
+interpret datetimes entered in forms.
+
+Django sets the ``os.environ['TZ']`` variable to the time zone you specify in
+the :setting:`TIME_ZONE` setting. Thus, all your views and models will
+automatically operate in this time zone. However, Django won't set the ``TZ``
+environment variable under the following conditions:
 
 * If you're using the manual configuration option as described in
   :ref:`manually configuring settings
@@ -2003,7 +2072,6 @@ to ensure your processes are running in the correct environment.
     Django cannot reliably use alternate time zones in a Windows
     environment. If you're running Django on Windows, this variable
     must be set to match the system timezone.
-
 
 .. _See available choices: http://www.postgresql.org/docs/8.1/static/datetime-keywords.html#DATETIME-TIMEZONE-SET-TABLE
 
@@ -2043,7 +2111,7 @@ This provides an easy way to turn it off, for performance. If this is set to
 ``False``, Django will make some optimizations so as not to load the
 translation machinery.
 
-See also :setting:`USE_L10N`
+See also :setting:`LANGUAGE_CODE`, :setting:`USE_L10N` and :setting:`USE_TZ`.
 
 .. setting:: USE_L10N
 
@@ -2058,7 +2126,7 @@ A boolean that specifies if localized formatting of data will be enabled by
 default or not. If this is set to ``True``, e.g. Django will display numbers and
 dates using the format of the current locale.
 
-See also :setting:`USE_I18N` and :setting:`LANGUAGE_CODE`
+See also :setting:`LANGUAGE_CODE`, :setting:`USE_I18N` and :setting:`USE_TZ`.
 
 .. note::
 
@@ -2081,6 +2149,27 @@ When :setting:`USE_L10N` is set to ``True`` and if this is also set to
 
 See also :setting:`DECIMAL_SEPARATOR`, :setting:`NUMBER_GROUPING` and
 :setting:`THOUSAND_SEPARATOR`.
+
+.. setting:: USE_TZ
+
+USE_TZ
+------
+
+.. versionadded:: 1.4
+
+Default: ``False``
+
+A boolean that specifies if datetimes will be timezone-aware by default or not.
+If this is set to ``True``, Django will use timezone-aware datetimes internally.
+Otherwise, Django will use naive datetimes in local time.
+
+See also :setting:`TIME_ZONE`, :setting:`USE_I18N` and :setting:`USE_L10N`.
+
+.. note::
+
+    The default :file:`settings.py` file created by
+    :djadmin:`django-admin.py startproject <startproject>` includes
+    ``USE_TZ = True`` for convenience.
 
 .. setting:: USE_X_FORWARDED_HOST
 

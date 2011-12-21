@@ -14,6 +14,7 @@ from django.utils.encoding import force_unicode
 from django.utils.tree import Node
 from django.db import connections, DEFAULT_DB_ALIAS
 from django.db.models import signals
+from django.db.models.expressions import ExpressionNode
 from django.db.models.fields import FieldDoesNotExist
 from django.db.models.query_utils import InvalidQuery
 from django.db.models.sql import aggregates as base_aggregates_module
@@ -1066,7 +1067,7 @@ class Query(object):
             value = True
         elif callable(value):
             value = value()
-        elif hasattr(value, 'evaluate'):
+        elif isinstance(value, ExpressionNode):
             # If value is a query expression, evaluate it
             value = SQLEvaluator(value, self)
             having_clause = value.contains_aggregate
@@ -1252,7 +1253,7 @@ class Query(object):
         case). Finally, 'negate' is used in the same sense as for add_filter()
         -- it indicates an exclude() filter, or something similar. It is only
         passed in here so that it can be passed to a field's extra_filter() for
-        customised behaviour.
+        customized behavior.
 
         Returns the final field involved in the join, the target database
         column (used for any 'where' constraint), the final 'opts' value and the

@@ -56,7 +56,7 @@ For more details, see the documentation for
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This method allows for more efficient creation of multiple objects in the ORM.
-It can provide significant performance increases if you have many objects,
+It can provide significant performance increases if you have many objects.
 Django makes use of this internally, meaning some operations (such as database
 setup for test suites) have seen a performance benefit as a result.
 
@@ -409,7 +409,6 @@ If the same code is imported inconsistently (some places with the project
 prefix, some places without it), the imports will need to be cleaned up when
 switching to the new ``manage.py``.
 
-
 Improved WSGI support
 ~~~~~~~~~~~~~~~~~~~~~
 
@@ -427,16 +426,35 @@ callable :djadmin:`runserver` uses.
 (The :djadmin:`runfcgi` management command also internally wraps the WSGI
 callable configured via :setting:`WSGI_APPLICATION`.)
 
+Support for time zones
+~~~~~~~~~~~~~~~~~~~~~~
+
+Django 1.4 adds :ref:`support for time zones <time-zones>`. When it's enabled,
+Django stores date and time information in UTC in the database, uses time
+zone-aware datetime objects internally, and translates them to the end user's
+time zone in templates and forms.
+
+Reasons for using this feature include:
+
+- Customizing date and time display for users around the world.
+- Storing datetimes in UTC for database portability and interoperability.
+  (This argument doesn't apply to PostgreSQL, because it already stores
+  timestamps with time zone information in Django 1.3.)
+- Avoiding data corruption problems around DST transitions.
+
+Time zone support in enabled by default in new projects created with
+:djadmin:`startproject`. If you want to use this feature in an existing
+project, there is a :ref:`migration guide <time-zones-migration-guide>`.
 
 Minor features
 ~~~~~~~~~~~~~~
 
 Django 1.4 also includes several smaller improvements worth noting:
 
-* A more usable stacktrace in the technical 500 page: frames in the stack
-  trace which reference Django's code are dimmed out, while frames in user
-  code are slightly emphasized. This change makes it easier to scan a stacktrace
-  for issues in user code.
+* A more usable stacktrace in the technical 500 page: frames in the
+  stack trace which reference Django's code are dimmed out, while
+  frames in user code are slightly emphasized. This change makes it
+  easier to scan a stacktrace for issues in user code.
 
 * :doc:`Tablespace support </topics/db/tablespaces>` in PostgreSQL.
 
@@ -466,6 +484,8 @@ Django 1.4 also includes several smaller improvements worth noting:
   be able to retrieve a translation string without displaying it but setting
   a template context variable instead.
 
+* The :ttag:`if` template tag now supports ``{% elif %}`` clauses.
+
 * A new plain text version of the HTTP 500 status code internal error page
   served when :setting:`DEBUG` is ``True`` is now sent to the client when
   Django detects that the request has originated in JavaScript code
@@ -476,6 +496,13 @@ Django 1.4 also includes several smaller improvements worth noting:
 
   This should make it easier to read when debugging interaction with
   client-side Javascript code.
+
+* Added the :djadminopt:`--no-location` option to the :djadmin:`makemessages`
+  command.
+
+* Changed the ``locmem`` cache backend to use
+  ``pickle.HIGHEST_PROTOCOL`` for better compatibility with the other
+  cache backends.
 
 .. _backwards-incompatible-changes-1.4:
 
@@ -613,6 +640,65 @@ immediately raise a 404. Additionally redirects returned by flatpages are now
 permanent (301 status code) to match the behavior of the
 :class:`~django.middleware.common.CommonMiddleware`.
 
+Serialization of :class:`~datetime.datetime` and :class:`~datetime.time`
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+As a consequence of time zone support, and according to the ECMA-262
+specification, some changes were made to the JSON serializer:
+
+- It includes the time zone for aware datetime objects. It raises an exception
+  for aware time objects.
+- It includes milliseconds for datetime and time objects. There is still
+  some precision loss, because Python stores microseconds (6 digits) and JSON
+  only supports milliseconds (3 digits). However, it's better than discarding
+  microseconds entirely.
+
+The XML serializer was also changed to use ISO8601 for datetimes. The letter
+``T`` is used to separate the date part from the time part, instead of a
+space. Time zone information is included in the ``[+-]HH:MM`` format.
+
+The serializers will dump datetimes in fixtures with these new formats. They
+can still load fixtures that use the old format.
+
+``supports_timezone`` changed to ``False`` for SQLite
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The database feature ``supports_timezone`` used to be ``True`` for SQLite.
+Indeed, if you saved an aware datetime object, SQLite stored a string that
+included an UTC offset. However, this offset was ignored when loading the value
+back from the database, which could corrupt the data.
+
+In the context of time zone support, this flag was changed to ``False``, and
+datetimes are now stored without time zone information in SQLite. When
+:setting:`USE_TZ` is ``False``, if you attempt to save an aware datetime
+object, Django raises an exception.
+
+Database connection's thread-locality
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``DatabaseWrapper`` objects (i.e. the connection objects referenced by
+``django.db.connection`` and ``django.db.connections["some_alias"]``) used to
+be thread-local. They are now global objects in order to be potentially shared
+between multiple threads. While the individual connection objects are now
+global, the ``django.db.connections`` dictionary referencing those objects is
+still thread-local. Therefore if you just use the ORM or
+``DatabaseWrapper.cursor()`` then the behavior is still the same as before.
+Note, however, that ``django.db.connection`` does not directly reference the
+default ``DatabaseWrapper`` object any more and is now a proxy to access that
+object's attributes. If you need to access the actual ``DatabaseWrapper``
+object, use ``django.db.connections[DEFAULT_DB_ALIAS]`` instead.
+
+As part of this change, all underlying SQLite connections are now enabled for
+potential thread-sharing (by passing the ``check_same_thread=False`` attribute
+to pysqlite). ``DatabaseWrapper`` however preserves the previous behavior by
+disabling thread-sharing by default, so this does not affect any existing
+code that purely relies on the ORM or on ``DatabaseWrapper.cursor()``.
+
+Finally, while it is now possible to pass connections between threads, Django
+does not make any effort to synchronize access to the underlying backend.
+Concurrency behavior is defined by the underlying backend implementation.
+Check their documentation for details.
+
 `COMMENTS_BANNED_USERS_GROUP` setting
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -701,7 +787,7 @@ AJAX applications is becoming more common, we now protect all methods not
 defined as safe by :rfc:`2616` i.e. we exempt GET, HEAD, OPTIONS and TRACE, and
 enforce protection on everything else.
 
-If you using PUT or DELETE methods in AJAX applications, please see the
+If you are using PUT or DELETE methods in AJAX applications, please see the
 :ref:`instructions about using AJAX and CSRF <csrf-ajax>`.
 
 ``django.core.template_loaders``
@@ -722,9 +808,10 @@ removed.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The ``open`` method of the base Storage class took an obscure parameter
-``mixin`` which allowed to dynamically change the base classes of the
-returned file object. In the rare case you relied on the `mixin` parameter,
-you can easily achieve the same by overriding the `open` method, e.g.::
+``mixin`` which allowed you to dynamically change the base classes of the
+returned file object. This has been removed. In the rare case you relied on the
+`mixin` parameter, you can easily achieve the same by overriding the `open`
+method, e.g.::
 
     from django.core.files import File
     from django.core.files.storage import FileSystemStorage
@@ -887,3 +974,31 @@ Now, the flags are keyword arguments of :meth:`@register.filter
         return value
 
 See :ref:`filters and auto-escaping <filters-auto-escaping>` for more information.
+
+Session cookies now have the ``httponly`` flag by default
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Session cookies now include the ``httponly`` attribute by default to
+help reduce the impact of potential XSS attacks. For strict backwards
+compatibility, use ``SESSION_COOKIE_HTTPONLY = False`` in settings.
+
+Wildcard expansion of application names in `INSTALLED_APPS`
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Until Django 1.3, :setting:`INSTALLED_APPS` accepted wildcards in application
+names, like ``django.contrib.*``. The expansion was performed by a
+filesystem-based implementation of ``from <package> import *``. Unfortunately,
+`this can't be done reliably`_.
+
+This behavior was never documented. Since it is un-pythonic and not obviously
+useful, it was removed in Django 1.4. If you relied on it, you must edit your
+settings file to list all your applications explicitly.
+
+.. _this can't be done reliably: http://docs.python.org/tutorial/modules.html#importing-from-a-package
+
+``HttpRequest.raw_post_data`` renamed to ``HttpRequest.body``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+This attribute was confusingly named ``HttpRequest.raw_post_data``, but it
+actually provided the body of the HTTP request. It's been renamed to
+``HttpRequest.body``, and ``HttpRequest.raw_post_data`` has been deprecated.

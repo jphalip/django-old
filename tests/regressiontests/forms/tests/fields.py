@@ -136,6 +136,23 @@ class FieldsTests(SimpleTestCase):
         self.assertEqual(f.max_length, None)
         self.assertEqual(f.min_length, 10)
 
+    def test_charfield_widget_attrs(self):
+        """
+        Ensure that CharField.widget_attrs() always returns a dictionary.
+        Refs #15912
+        """
+        # Return an empty dictionary if max_length is None
+        f = CharField()
+        self.assertEqual(f.widget_attrs(TextInput()), {})
+
+        # Or if the widget is not TextInput or PasswordInput
+        f = CharField(max_length=10)
+        self.assertEqual(f.widget_attrs(HiddenInput()), {})
+
+        # Otherwise, return a maxlength attribute equal to max_length
+        self.assertEqual(f.widget_attrs(TextInput()), {'maxlength': '10'})
+        self.assertEqual(f.widget_attrs(PasswordInput()), {'maxlength': '10'})
+
     # IntegerField ################################################################
 
     def test_integerfield_1(self):
@@ -407,6 +424,7 @@ class FieldsTests(SimpleTestCase):
         self.assertEqual(datetime.datetime(2006, 10, 25, 14, 30, 59), f.clean(datetime.datetime(2006, 10, 25, 14, 30, 59)))
         self.assertEqual(datetime.datetime(2006, 10, 25, 14, 30, 59, 200), f.clean(datetime.datetime(2006, 10, 25, 14, 30, 59, 200)))
         self.assertEqual(datetime.datetime(2006, 10, 25, 14, 30, 45, 200), f.clean('2006-10-25 14:30:45.000200'))
+        self.assertEqual(datetime.datetime(2006, 10, 25, 14, 30, 45, 200), f.clean('2006-10-25 14:30:45.0002'))
         self.assertEqual(datetime.datetime(2006, 10, 25, 14, 30, 45), f.clean('2006-10-25 14:30:45'))
         self.assertEqual(datetime.datetime(2006, 10, 25, 14, 30), f.clean('2006-10-25 14:30:00'))
         self.assertEqual(datetime.datetime(2006, 10, 25, 14, 30), f.clean('2006-10-25 14:30'))
@@ -452,6 +470,9 @@ class FieldsTests(SimpleTestCase):
         self.assertEqual(datetime.datetime(2006, 10, 25, 0, 0), f.clean(' 10/25/06 '))
         self.assertRaisesMessage(ValidationError, "[u'Enter a valid date/time.']", f.clean, '   ')
 
+    def test_datetimefield_5(self):
+        f = DateTimeField(input_formats=[u'%Y.%m.%d %H:%M:%S.%f'])
+        self.assertEqual(datetime.datetime(2006, 10, 25, 14, 30, 45, 200), f.clean('2006.10.25 14:30:45.0002'))
     # RegexField ##################################################################
 
     def test_regexfield_1(self):
@@ -492,6 +513,12 @@ class FieldsTests(SimpleTestCase):
         self.assertEqual(u'1234567890', f.clean('1234567890'))
         self.assertRaisesMessage(ValidationError, "[u'Ensure this value has at most 10 characters (it has 11).']", f.clean, '12345678901')
         self.assertRaisesMessage(ValidationError, "[u'Enter a valid value.']", f.clean, '12345a')
+
+    def test_change_regex_after_init(self):
+        f = RegexField('^[a-z]+$')
+        f.regex = '^\d+$'
+        self.assertEqual(u'1234', f.clean('1234'))
+        self.assertRaisesMessage(ValidationError, "[u'Enter a valid value.']", f.clean, 'abcd')
 
     # EmailField ##################################################################
 

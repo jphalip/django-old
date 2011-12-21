@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import
 
-import datetime
 import tempfile
 import os
 
@@ -10,8 +9,10 @@ from django.contrib import admin
 from django.contrib.admin.views.main import ChangeList
 from django.core.files.storage import FileSystemStorage
 from django.core.mail import EmailMessage
+from django.conf.urls import patterns, url
 from django.db import models
 from django.forms.models import BaseModelFormSet
+from django.http import HttpResponse
 
 from .models import (Article, Chapter, Account, Media, Child, Parent, Picture,
     Widget, DooHickey, Grommet, Whatsit, FancyDoodad, Category, Link,
@@ -22,7 +23,9 @@ from .models import (Article, Chapter, Account, Media, Child, Parent, Picture,
     Gadget, Villain, SuperVillain, Plot, PlotDetails, CyclicOne, CyclicTwo,
     WorkHour, Reservation, FoodDelivery, RowLevelChangePermissionModel, Paper,
     CoverLetter, Story, OtherStory, Book, Promo, ChapterXtra1, Pizza, Topping,
-    Album, Question, Answer, ComplexSortedPerson, PrePopulatedPostLargeSlug)
+    Album, Question, Answer, ComplexSortedPerson, PrePopulatedPostLargeSlug,
+    AdminOrderedField, AdminOrderedModelMethod, AdminOrderedAdminMethod,
+    AdminOrderedCallable, Report)
 
 
 def callable_year(dt_value):
@@ -260,7 +263,7 @@ class OldSubscriberAdmin(admin.ModelAdmin):
     actions = None
 
 
-temp_storage = FileSystemStorage(tempfile.mkdtemp())
+temp_storage = FileSystemStorage(tempfile.mkdtemp(dir=os.environ['DJANGO_TEST_TEMP_DIR']))
 UPLOAD_TO = os.path.join(temp_storage.location, 'test_upload')
 
 
@@ -469,11 +472,46 @@ class WorkHourAdmin(admin.ModelAdmin):
     list_filter = ('employee',)
 
 
-class PrePopulatedPostLargeSlugAdmin(admin.ModelAdmin): 
-    prepopulated_fields = { 
-        'slug' : ('title',) 
-    } 
- 
+class PrePopulatedPostLargeSlugAdmin(admin.ModelAdmin):
+    prepopulated_fields = {
+        'slug' : ('title',)
+    }
+
+
+class AdminOrderedFieldAdmin(admin.ModelAdmin):
+    ordering = ('order',)
+    list_display = ('stuff', 'order')
+
+class AdminOrderedModelMethodAdmin(admin.ModelAdmin):
+    ordering = ('order',)
+    list_display = ('stuff', 'some_order')
+
+class AdminOrderedAdminMethodAdmin(admin.ModelAdmin):
+    def some_admin_order(self, obj):
+        return obj.order
+    some_admin_order.admin_order_field = 'order'
+    ordering = ('order',)
+    list_display = ('stuff', 'some_admin_order')
+
+def admin_ordered_callable(obj):
+    return obj.order
+admin_ordered_callable.admin_order_field = 'order'
+class AdminOrderedCallableAdmin(admin.ModelAdmin):
+    ordering = ('order',)
+    list_display = ('stuff', admin_ordered_callable)
+
+class ReportAdmin(admin.ModelAdmin):
+    def extra(self, request):
+        return HttpResponse()
+
+    def get_urls(self):
+        # Corner case: Don't call parent implementation
+        return patterns('',
+            url(r'^extra/$',
+                self.extra,
+                name='cable_extra'),
+        )
+
 site = admin.AdminSite(name="admin")
 site.register(Article, ArticleAdmin)
 site.register(CustomArticle, CustomArticleAdmin)
@@ -517,6 +555,7 @@ site.register(Paper, PaperAdmin)
 site.register(CoverLetter, CoverLetterAdmin)
 site.register(Story, StoryAdmin)
 site.register(OtherStory, OtherStoryAdmin)
+site.register(Report, ReportAdmin)
 
 # We intentionally register Promo and ChapterXtra1 but not Chapter nor ChapterXtra2.
 # That way we cover all four cases:
@@ -537,10 +576,14 @@ site.register(Question)
 site.register(Answer)
 site.register(PrePopulatedPost, PrePopulatedPostAdmin)
 site.register(ComplexSortedPerson, ComplexSortedPersonAdmin)
+site.register(PrePopulatedPostLargeSlug, PrePopulatedPostLargeSlugAdmin)
+site.register(AdminOrderedField, AdminOrderedFieldAdmin)
+site.register(AdminOrderedModelMethod, AdminOrderedModelMethodAdmin)
+site.register(AdminOrderedAdminMethod, AdminOrderedAdminMethodAdmin)
+site.register(AdminOrderedCallable, AdminOrderedCallableAdmin)
 
 # Register core models we need in our tests
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.admin import UserAdmin, GroupAdmin
 site.register(User, UserAdmin)
 site.register(Group, GroupAdmin)
-site.register(PrePopulatedPostLargeSlug, PrePopulatedPostLargeSlugAdmin) 

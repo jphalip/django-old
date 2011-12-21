@@ -16,15 +16,16 @@ from django.core import management
 from django.core.cache import get_cache, DEFAULT_CACHE_ALIAS
 from django.core.cache.backends.base import (CacheKeyWarning,
     InvalidCacheBackendError)
+from django.db import router
 from django.http import HttpResponse, HttpRequest, QueryDict
 from django.middleware.cache import (FetchFromCacheMiddleware,
     UpdateCacheMiddleware, CacheMiddleware)
 from django.template import Template
 from django.template.response import TemplateResponse
-from django.test import TestCase, RequestFactory
+from django.test import TestCase, TransactionTestCase, RequestFactory
 from django.test.utils import (get_warnings_state, restore_warnings_state,
     override_settings)
-from django.utils import translation, unittest
+from django.utils import timezone, translation, unittest
 from django.utils.cache import (patch_vary_headers, get_cache_key,
     learn_cache_key, patch_cache_control, patch_response_headers)
 from django.views.decorators.cache import cache_page
@@ -174,6 +175,17 @@ class DummyCacheTests(unittest.TestCase):
 
 class BaseCacheTests(object):
     # A common set of tests to apply to all cache backends
+
+    def _get_request_cache(self, path):
+        request = HttpRequest()
+        request.META = {
+            'SERVER_NAME': 'testserver',
+            'SERVER_PORT': 80,
+        }
+        request.path = request.path_info = path
+        request._cache_update_cache = True
+        request.method = 'GET'
+        return request
 
     def test_simple(self):
         # Simple cache set/get works
@@ -740,12 +752,41 @@ class BaseCacheTests(object):
         self.assertEqual(self.custom_key_cache2.get('answer2'), 42)
 
 
+    def test_cache_write_unpickable_object(self):
+        update_middleware = UpdateCacheMiddleware()
+        update_middleware.cache = self.cache
+
+        fetch_middleware = FetchFromCacheMiddleware()
+        fetch_middleware.cache = self.cache
+
+        request = self._get_request_cache('/cache/test')
+        get_cache_data = FetchFromCacheMiddleware().process_request(request)
+        self.assertEqual(get_cache_data, None)
+
+        response = HttpResponse()
+        content = 'Testing cookie serialization.'
+        response.content = content
+        response.set_cookie('foo', 'bar')
+
+        update_middleware.process_response(request, response)
+
+        get_cache_data = fetch_middleware.process_request(request)
+        self.assertNotEqual(get_cache_data, None)
+        self.assertEqual(get_cache_data.content, content)
+        self.assertEqual(get_cache_data.cookies, response.cookies)
+
+        update_middleware.process_response(request, get_cache_data)
+        get_cache_data = fetch_middleware.process_request(request)
+        self.assertNotEqual(get_cache_data, None)
+        self.assertEqual(get_cache_data.content, content)
+        self.assertEqual(get_cache_data.cookies, response.cookies)
+
 def custom_key_func(key, key_prefix, version):
     "A customized cache key function"
     return 'CUSTOM-' + '-'.join([key_prefix, str(version), key])
 
 
-class DBCacheTests(unittest.TestCase, BaseCacheTests):
+class DBCacheTests(BaseCacheTests, TransactionTestCase):
     backend_name = 'django.core.cache.backends.db.DatabaseCache'
 
     def setUp(self):
@@ -762,6 +803,7 @@ class DBCacheTests(unittest.TestCase, BaseCacheTests):
         from django.db import connection
         cursor = connection.cursor()
         cursor.execute('DROP TABLE %s' % connection.ops.quote_name(self._table_name))
+        connection.commit()
 
     def test_cull(self):
         self.perform_cull_test(50, 29)
@@ -773,6 +815,47 @@ class DBCacheTests(unittest.TestCase, BaseCacheTests):
     def test_old_initialization(self):
         self.cache = get_cache('db://%s?max_entries=30&cull_frequency=0' % self._table_name)
         self.perform_cull_test(50, 18)
+
+
+DBCacheWithTimeZoneTests = override_settings(USE_TZ=True)(DBCacheTests)
+
+
+class DBCacheRouter(object):
+    """A router that puts the cache table on the 'other' database."""
+
+    def db_for_read(self, model, **hints):
+        if model._meta.app_label == 'django_cache':
+            return 'other'
+
+    def db_for_write(self, model, **hints):
+        if model._meta.app_label == 'django_cache':
+            return 'other'
+
+    def allow_syncdb(self, db, model):
+        if model._meta.app_label == 'django_cache':
+            return db == 'other'
+
+
+class CreateCacheTableForDBCacheTests(TestCase):
+    multi_db = True
+
+    def test_createcachetable_observes_database_router(self):
+        old_routers = router.routers
+        try:
+            router.routers = [DBCacheRouter()]
+            # cache table should not be created on 'default'
+            with self.assertNumQueries(0, using='default'):
+                management.call_command('createcachetable', 'cache_table',
+                                        database='default',
+                                        verbosity=0, interactive=False)
+            # cache table should be created on 'other'
+            # one query is used to create the table and another one the index
+            with self.assertNumQueries(2, using='other'):
+                management.call_command('createcachetable', 'cache_table',
+                                        database='other',
+                                        verbosity=0, interactive=False)
+        finally:
+            router.routers = old_routers
 
 
 class LocMemCacheTests(unittest.TestCase, BaseCacheTests):
@@ -822,6 +905,16 @@ class LocMemCacheTests(unittest.TestCase, BaseCacheTests):
         self.assertEqual(mirror_cache.get('value1'), 42)
         self.assertEqual(other_cache.get('value1'), None)
 
+    def test_incr_decr_timeout(self):
+        """incr/decr does not modify expiry time (matches memcached behavior)"""
+        key = 'value'
+        _key = self.cache.make_key(key)
+        self.cache.set(key, 1, timeout=self.cache.default_timeout*10)
+        expire = self.cache._expire_info[_key]
+        self.cache.incr(key)
+        self.assertEqual(expire, self.cache._expire_info[_key])
+        self.cache.decr(key)
+        self.assertEqual(expire, self.cache._expire_info[_key])
 
 # memcached backend isn't guaranteed to be available.
 # To check the memcached backend, the test settings file will
@@ -1154,7 +1247,7 @@ class CacheI18nTest(TestCase):
         request.session = {}
         return request
 
-    @override_settings(USE_I18N=True, USE_L10N=False)
+    @override_settings(USE_I18N=True, USE_L10N=False, USE_TZ=False)
     def test_cache_key_i18n_translation(self):
         request = self._get_request()
         lang = translation.get_language()
@@ -1164,7 +1257,7 @@ class CacheI18nTest(TestCase):
         key2 = get_cache_key(request)
         self.assertEqual(key, key2)
 
-    @override_settings(USE_I18N=False, USE_L10N=True)
+    @override_settings(USE_I18N=False, USE_L10N=True, USE_TZ=False)
     def test_cache_key_i18n_formatting(self):
         request = self._get_request()
         lang = translation.get_language()
@@ -1174,13 +1267,25 @@ class CacheI18nTest(TestCase):
         key2 = get_cache_key(request)
         self.assertEqual(key, key2)
 
+    @override_settings(USE_I18N=False, USE_L10N=False, USE_TZ=True)
+    def test_cache_key_i18n_timezone(self):
+        request = self._get_request()
+        tz = timezone.get_current_timezone_name()
+        response = HttpResponse()
+        key = learn_cache_key(request, response)
+        self.assertIn(tz, key, "Cache keys should include the time zone name when time zones are active")
+        key2 = get_cache_key(request)
+        self.assertEqual(key, key2)
+
     @override_settings(USE_I18N=False, USE_L10N=False)
     def test_cache_key_no_i18n (self):
         request = self._get_request()
         lang = translation.get_language()
+        tz = timezone.get_current_timezone_name()
         response = HttpResponse()
         key = learn_cache_key(request, response)
         self.assertNotIn(lang, key, "Cache keys shouldn't include the language name when i18n isn't active")
+        self.assertNotIn(tz, key, "Cache keys shouldn't include the time zone name when i18n isn't active")
 
     @override_settings(
             CACHE_MIDDLEWARE_KEY_PREFIX="test",
