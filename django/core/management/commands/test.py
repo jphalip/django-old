@@ -8,19 +8,19 @@ from django.test.utils import get_runner
 
 class Command(BaseCommand):
     option_list = BaseCommand.option_list + (
-        make_option(
-            '--noinput', action='store_false', dest='interactive',default=True,
+        make_option('--noinput',
+            action='store_false', dest='interactive', default=True,
             help='Tells Django to NOT prompt the user for input of any kind.'),
-        make_option(
-            '--failfast', action='store_true', dest='failfast', default=False,
+        make_option('--failfast',
+            action='store_true', dest='failfast', default=False,
             help='Tells Django to stop running the test suite after first '
                  'failed test.'),
-        make_option(
-            '--testrunner', action='store', dest='testrunner',
+        make_option('--testrunner',
+            action='store', dest='testrunner',
             help='Tells Django to use specified test runner class instead of '
                  'the one specified by the TEST_RUNNER setting.'),
-        make_option(
-            '--liveserver', action='store', dest='liveserver', default=None,
+        make_option('--liveserver',
+            action='store', dest='liveserver', default=None,
             help='Overrides the default address where the live server (used '
                  'with LiveServerTestCase) is expected to run from. The '
                  'default value is localhost:8081.'),
