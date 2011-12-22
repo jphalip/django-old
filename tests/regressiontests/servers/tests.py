@@ -101,11 +101,9 @@ class LiveServerBase(LiveServerTestCase):
         super(LiveServerBase, cls).tearDownClass()
 
     def urlopen(self, url):
-        server_host = os.environ.get(
-            'DJANGO_LIVE_TEST_SERVER_HOST', 'localhost')
-        server_port = os.environ.get(
-            'DJANGO_LIVE_TEST_SERVER_PORT', 8081)
-        base = 'http://%s:%s' % (server_host, server_port)
+        server_address = os.environ.get(
+            'DJANGO_LIVE_TEST_SERVER_ADDRESS', 'localhost:8081')
+        base = 'http://%s' % server_address
         return urllib2.urlopen(base + url)
 
 
@@ -157,7 +155,7 @@ class LiveServerAddress(LiveServerBase):
 
     def test_test_test(self):
         # Intentionally empty method so that the test is picked up by the
-        # test runner and the overriden setUpClass method is executed.
+        # test runner and the overriden setUpClass() method is executed.
         pass
 
 class LiveServerViews(LiveServerBase):
