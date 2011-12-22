@@ -1839,7 +1839,7 @@ out the `full reference`_ for more details.
 
 .. note::
 
-    ``LiveServerTestCase`` makes use of the :doc:`static files contrib app
+    ``LiveServerTestCase`` makes use of the :doc:`staticfiles contrib app
     </howto/static-files>` so you'll need to have your project configured
     accordingly (in particular by setting :setting:`STATIC_URL`).
 
