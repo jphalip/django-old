@@ -18,6 +18,7 @@ class AdminSeleniumWebDriverTestCase(LiveServerTestCase):
             mod = import_module(module)
             WebDriver = getattr(mod, attr)
             cls.selenium = WebDriver()
+            cls.selenium.implicitly_wait(10)
         except Exception:
             raise SkipTest('Selenium webdriver "%s" not installed or not '
                            'operational.' % cls.webdriver_class)
